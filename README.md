@@ -24,3 +24,6 @@ A simple configuration would look like this
 </plugin>
 ```
 If the pedant option is true, the build will fail if a package or the bundle have a version that is lower than the recommended
+
+
+This software is covered by the Apache license v2. See the LICENSE file for more information.
