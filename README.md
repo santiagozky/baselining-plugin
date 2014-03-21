@@ -4,7 +4,7 @@ baselining-plugin
 This is a maven plugin that helps you enforcing semantic versioning as recommended by OSGi,
 
 A simple configuration would look like this
-
+```XML
  <plugin>
      <groupId>com.santiagozky.baselining</groupId>
      <artifactId>baselining-plugin</artifactId>
@@ -22,3 +22,4 @@ A simple configuration would look like this
 			     </execution>
 			</executions>
 </plugin>
+```
