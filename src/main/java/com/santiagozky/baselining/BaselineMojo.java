@@ -1,4 +1,4 @@
-package biz.netcentric.baselining;
+package com.santiagozky.baselining;
 
 import java.io.File;
 import java.io.FilenameFilter;
@@ -64,11 +64,8 @@ public class BaselineMojo extends AbstractMojo {
 		String oldJarArtifact= name.concat("-").concat(previousVersion.toString().concat(EXTENSION));
 		File oldJarName = new File(oldJarPath,oldJarArtifact);
 
-		getLog().info("previous jar is at " + oldJarName);
+	
 		File newJarName = new File(target, jarName.concat(EXTENSION));
-		getLog().info(
-				"new artifact is at " + newJarName + " with previous one on ");
-		
 		getLog().info("Comparing artifact against "+oldJarArtifact);
 
 		DiffPluginImpl differ = new DiffPluginImpl();

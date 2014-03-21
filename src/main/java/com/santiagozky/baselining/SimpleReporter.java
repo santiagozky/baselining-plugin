@@ -1,4 +1,4 @@
-package biz.netcentric.baselining;
+package com.santiagozky.baselining;
 
 import java.util.List;
 
