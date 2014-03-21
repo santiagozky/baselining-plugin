@@ -1,0 +1,12 @@
+target/
+.idea
+.classpath
+.project
+.settings
+.metadata
+.DS_Store
+._.DS_Store
+generated
+.class
+*.orig
+*.jar
