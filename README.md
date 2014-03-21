@@ -8,7 +8,7 @@ A simple configuration would look like this
  <plugin>
      <groupId>com.santiagozky.baselining</groupId>
      <artifactId>baselining-plugin</artifactId>
-     <version>0.0.1</version>
+     <version>1.0-SNAPSHOT</version>
 		 <executions>
 			    <execution>
 			        <id>execution1</id>
@@ -23,3 +23,4 @@ A simple configuration would look like this
 			</executions>
 </plugin>
 ```
+If the pedant option is true, the build will fail if a package or the bundle have a version that is lower than the recommended
