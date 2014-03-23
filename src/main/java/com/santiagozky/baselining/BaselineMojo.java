@@ -73,7 +73,7 @@ public class BaselineMojo extends AbstractMojo {
 	@Parameter(defaultValue = "${project.remoteProjectRepositories}")
 	private List<RemoteRepository> projectRepos;
 
-	public void execute() throws MojoExecutionException {
+	public void execute() throws MojoExecutionException, MojoFailureException {
 
 		File oldJar = getLastArtifact();
 
@@ -90,7 +90,12 @@ public class BaselineMojo extends AbstractMojo {
 			Jar old = new Jar(oldJar);
 			Jar current = new Jar(newJar);
 
-			Set<Info> infos = baseline.baseline(current, old, null);
+			Set<Info> infos;
+			try {
+				infos = baseline.baseline(current, old, null);
+			} catch (Exception e) {
+				throw new MojoExecutionException("could not calculate diff between artifacts",e);
+			}
 			for (Info info : infos) {
 				Version v = info.suggestedVersion;
 				getLog().info(
@@ -98,15 +103,16 @@ public class BaselineMojo extends AbstractMojo {
 								+ " version changed from " + info.olderVersion
 								+ " to " + info.newerVersion);
 				if (info.mismatch) {
-					if (strict) {
-						throw new MojoFailureException(
-								"wrong version for package " + info.packageName);
-					}
 					getLog().error(
 							"package "
 									+ info.packageName
 									+ " version is incorrect. Version should be at least "
 									+ v);
+					if (strict) {
+						throw new MojoFailureException(
+								"wrong version for package " + info.packageName);
+					}
+					
 				}
 				if (info.warning != null && info.warning.length() > 0) {
 					getLog().warn(
@@ -115,21 +121,20 @@ public class BaselineMojo extends AbstractMojo {
 
 			}
 			BundleInfo binfo = baseline.getBundleInfo();
+			getLog().warn(
+					"Bundle version is " + binfo.version
+							+ ". The recommended version is "
+							+ binfo.suggestedVersion);
 			if (binfo.mismatch) {
 				if (strict) {
 					throw new MojoFailureException("wrong version for artifact");
 				}
-				getLog().warn(
-						"Bundle version is " + binfo.version
-								+ ". The recommended version is "
-								+ binfo.suggestedVersion);
+				
 			}
 
 		} catch (IOException e) {
 			throw new MojoExecutionException("could not calculate  versions", e);
-		} catch (Exception e) {
-			throw new MojoExecutionException("could not calculate  versions", e);
-		}
+		} 
 
 	}
 
