@@ -3,7 +3,9 @@ package com.santiagozky.baselining;
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -11,10 +13,22 @@ import org.apache.maven.artifact.versioning.ComparableVersion;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Execute;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.artifact.Artifact;
+import org.eclipse.aether.artifact.DefaultArtifact;
+import org.eclipse.aether.repository.RemoteRepository;
+import org.eclipse.aether.resolution.ArtifactRequest;
+import org.eclipse.aether.resolution.ArtifactResolutionException;
+import org.eclipse.aether.resolution.ArtifactResult;
+import org.eclipse.aether.resolution.VersionRangeRequest;
+import org.eclipse.aether.resolution.VersionRangeResolutionException;
+import org.eclipse.aether.resolution.VersionRangeResult;
 
 import aQute.bnd.differ.Baseline;
 import aQute.bnd.differ.Baseline.BundleInfo;
@@ -23,14 +37,12 @@ import aQute.bnd.differ.Baseline.Info;
 import aQute.bnd.osgi.Jar;
 import aQute.bnd.version.Version;
 
-/**
- * Says "Hi" to the user.
- * 
- */
-@Mojo(name = "baseline",defaultPhase= LifecyclePhase.VERIFY)
-@Execute(phase=LifecyclePhase.VERIFY, goal="baseline")
+@Mojo(name = "baseline", defaultPhase = LifecyclePhase.VERIFY)
+@Execute(phase = LifecyclePhase.VERIFY, goal = "baseline")
 public class BaselineMojo extends AbstractMojo {
 	private static final String EXTENSION = ".jar";
+
+	private static final String ARTIFACT_DESCRIPTION = "groupId:artifactId:[0,version)";
 
 	@Parameter(defaultValue = "${project.build.directory}")
 	private String target;
@@ -48,56 +60,65 @@ public class BaselineMojo extends AbstractMojo {
 
 	@Parameter(defaultValue = "${settings.localRepository}")
 	private String repoPath;
-	
+
 	@Parameter
 	private boolean strict = false;
 
+	@Component
+	private RepositorySystem repoSystem;
+
+	@Parameter(defaultValue = "${repositorySystemSession}")
+	private RepositorySystemSession repoSession;
+
+	@Parameter(defaultValue = "${project.remoteProjectRepositories}")
+	private List<RemoteRepository> projectRepos;
+
 	public void execute() throws MojoExecutionException {
 
-		String groupPath = groupId.replaceAll("\\.", File.separator);
-		File oldJarPath = new File(repoPath, groupPath);
-		oldJarPath = new File(oldJarPath, name);
-		// we need to get the newest version that is lower than the current one!
-		ComparableVersion previousVersion = acquirePreviousVersion(oldJarPath);
+		File oldJar = getLastArtifact();
 
-		oldJarPath = new File(oldJarPath, previousVersion.toString());
-		String oldJarArtifact= name.concat("-").concat(previousVersion.toString().concat(EXTENSION));
-		File oldJarName = new File(oldJarPath,oldJarArtifact);
+		// new jar comes from the target directory, freshly compiled
+		File newJar = new File(target, jarName.concat(EXTENSION));
 
-	
-		File newJarName = new File(target, jarName.concat(EXTENSION));
-		getLog().info("Comparing artifact against "+oldJarArtifact);
+		getLog().info("Comparing artifact against " + oldJar.getName());
+		getLog().info("strict mode is "+strict);
 
 		DiffPluginImpl differ = new DiffPluginImpl();
 		Baseline baseline;
 		try {
 			baseline = new Baseline(new SimpleReporter(), differ);
-			Jar old = new Jar(oldJarName);
-			Jar current = new Jar(newJarName);
+			Jar old = new Jar(oldJar);
+			Jar current = new Jar(newJar);
 
 			Set<Info> infos = baseline.baseline(current, old, null);
 			for (Info info : infos) {
 				Version v = info.suggestedVersion;
-				getLog().info("package "+info.packageName+
-						" version changed from " + info.olderVersion
+				getLog().info(
+						"package " + info.packageName
+								+ " version changed from " + info.olderVersion
 								+ " to " + info.newerVersion);
 				if (info.mismatch) {
-					 if(pedant){
-						 throw new MojoFailureException("wrong version for package "+info.packageName);
-					 }
+					if (strict) {
+						throw new MojoFailureException(
+								"wrong version for package " + info.packageName);
+					}
 					getLog().error(
-							"package "+info.packageName+" version is incorrect. Version should be at least " + v);
+							"package "
+									+ info.packageName
+									+ " version is incorrect. Version should be at least "
+									+ v);
 				}
 				if (info.warning != null && info.warning.length() > 0) {
-					getLog().warn("package "+info.packageName+": "+info.warning);
+					getLog().warn(
+							"package " + info.packageName + ": " + info.warning);
 				}
 
 			}
 			BundleInfo binfo = baseline.getBundleInfo();
 			if (binfo.mismatch) {
-				 if(pedant){
-					 throw new MojoFailureException("wrong version for artifact");
-				 }
+				if (strict) {
+					throw new MojoFailureException("wrong version for artifact");
+				}
 				getLog().warn(
 						"Bundle version is " + binfo.version
 								+ ". The recommended version is "
@@ -107,6 +128,84 @@ public class BaselineMojo extends AbstractMojo {
 		} catch (IOException e) {
 			throw new MojoExecutionException("could not calculate  versions", e);
 		} catch (Exception e) {
+			throw new MojoExecutionException("could not calculate  versions", e);
+		}
+
+	}
+
+	/**
+	 * gets the file for the last released artifact.
+	 * 
+	 * @return
+	 * @throws MojoExecutionException
+	 */
+	private File getLastArtifact() throws MojoExecutionException {
+		org.eclipse.aether.version.Version v = getLastVersion();
+		return getArtifactFile(v.toString());
+
+	}
+
+	/**
+	 * gets the file for the artifact at the specified version.
+	 * 
+	 * @param version
+	 * @return
+	 * @throws MojoExecutionException
+	 */
+	private File getArtifactFile(String version) throws MojoExecutionException {
+
+		Artifact artifactQuery = new DefaultArtifact(groupId.concat(":")
+				.concat(name).concat(":").concat(version));
+		ArtifactRequest request = new ArtifactRequest(artifactQuery,
+				projectRepos, null);
+		List<ArtifactRequest> arts = new ArrayList<ArtifactRequest>();
+		arts.add(request);
+		try {
+			ArtifactResult a = repoSystem.resolveArtifact(repoSession, request);
+			return a.getArtifact().getFile();
+		} catch (ArtifactResolutionException e) {
+			throw new MojoExecutionException(
+					"could not resolve artifact to compare with", e);
+		}
+
+	}
+
+	/**
+	 * gets the last version of the current artifact, not including the current
+	 * one.
+	 * 
+	 * @return
+	 * @throws MojoExecutionException
+	 */
+	private org.eclipse.aether.version.Version getLastVersion()
+			throws MojoExecutionException {
+
+		// build the artifact description with version range from 0 up to (non
+		// inclusive) current version
+
+		String artifactDescription = ARTIFACT_DESCRIPTION.replace("groupId",
+				groupId);
+		artifactDescription = artifactDescription.replace("artifactId", name);
+		artifactDescription = artifactDescription.replace("version", version);
+
+		Artifact artifact = new DefaultArtifact(artifactDescription);
+
+		VersionRangeRequest rangeRequest = new VersionRangeRequest();
+		rangeRequest.setArtifact(artifact);
+		rangeRequest.setRepositories(projectRepos);
+
+		VersionRangeResult rangeResult;
+		try {
+			rangeResult = repoSystem.resolveVersionRange(repoSession,
+					rangeRequest);
+			List<org.eclipse.aether.version.Version> versions = rangeResult
+					.getVersions();
+
+			org.eclipse.aether.version.Version lastVersion = versions
+					.get(versions.size() - 1);
+			return lastVersion;
+
+		} catch (VersionRangeResolutionException e) {
 			throw new MojoExecutionException("could not calculate  versions", e);
 		}
 
