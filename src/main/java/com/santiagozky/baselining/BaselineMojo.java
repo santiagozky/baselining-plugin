@@ -50,7 +50,7 @@ public class BaselineMojo extends AbstractMojo {
 	private String repoPath;
 	
 	@Parameter
-	private boolean strict = false;
+	private boolean pedant = false;
 
 	public void execute() throws MojoExecutionException {
 
