@@ -1,15 +1,11 @@
 package com.santiagozky.baselining;
 
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 
-import org.apache.maven.artifact.versioning.ComparableVersion;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -32,17 +28,35 @@ import org.eclipse.aether.resolution.VersionRangeResult;
 
 import aQute.bnd.differ.Baseline;
 import aQute.bnd.differ.Baseline.BundleInfo;
-import aQute.bnd.differ.DiffPluginImpl;
 import aQute.bnd.differ.Baseline.Info;
+import aQute.bnd.differ.DiffPluginImpl;
 import aQute.bnd.osgi.Jar;
 import aQute.bnd.version.Version;
 
 @Mojo(name = "baseline", defaultPhase = LifecyclePhase.VERIFY)
 @Execute(phase = LifecyclePhase.VERIFY, goal = "baseline")
 public class BaselineMojo extends AbstractMojo {
+	//TODO: how to get the real extension?
 	private static final String EXTENSION = ".jar";
 
 	private static final String ARTIFACT_DESCRIPTION = "groupId:artifactId:[0,version)";
+
+	/**
+	 * if strict is true, the build will fail if a package is on a lower version
+	 * than recommended.
+	 */
+	@Parameter
+	private boolean strict = false;
+
+	/**
+	 * Always show the suggested version of a package.
+	 * By default it will only shows it if the suggested is higher than the actual.
+	 */
+	@Parameter
+	private boolean verbose= false;
+
+
+	// these should not be modified
 
 	@Parameter(defaultValue = "${project.build.directory}")
 	private String target;
@@ -58,11 +72,7 @@ public class BaselineMojo extends AbstractMojo {
 	@Parameter(defaultValue = "${project.build.finalName}")
 	private String jarName;
 
-	@Parameter(defaultValue = "${settings.localRepository}")
-	private String repoPath;
-
-	@Parameter
-	private boolean strict = false;
+	// aether stuff
 
 	@Component
 	private RepositorySystem repoSystem;
@@ -74,15 +84,17 @@ public class BaselineMojo extends AbstractMojo {
 	private List<RemoteRepository> projectRepos;
 
 	public void execute() throws MojoExecutionException, MojoFailureException {
+		
+		
 
 		File oldJar = getLastArtifact();
 
-		// new jar comes from the target directory, freshly compiled
-		File newJar = new File(target, jarName.concat(EXTENSION));
+	
+		File newJar = getCurrentArtifact();
 
-		getLog().info("Comparing artifact against " + oldJar.getName());
-		getLog().info("strict mode is "+strict);
-
+		getLog().info(String.format("Comparing artifact %s against %s",newJar.getName(), oldJar.getName()));
+		getLog().debug("strict mode is " + strict);
+		getLog().debug("verbose mode is " + verbose);
 		DiffPluginImpl differ = new DiffPluginImpl();
 		Baseline baseline;
 		try {
@@ -94,48 +106,48 @@ public class BaselineMojo extends AbstractMojo {
 			try {
 				infos = baseline.baseline(current, old, null);
 			} catch (Exception e) {
-				throw new MojoExecutionException("could not calculate diff between artifacts",e);
+				throw new MojoExecutionException(
+						"could not calculate generate package differential", e);
 			}
 			for (Info info : infos) {
 				Version v = info.suggestedVersion;
-				getLog().info(
-						"package " + info.packageName
-								+ " version changed from " + info.olderVersion
-								+ " to " + info.newerVersion);
+				
+			
+				if(verbose){
+					getLog().info(String.format("package %s version changed from %s to %s",info.packageName,info.olderVersion,info.newerVersion));
+					getLog().info(String.format("package %s suggested version is %s",info.packageName,v));
+				}
 				if (info.mismatch) {
-					getLog().error(
-							"package "
-									+ info.packageName
-									+ " version is incorrect. Version should be at least "
-									+ v);
+					getLog().error(String.format("package %s version is incorrect. Should be at least %s", info.packageName,v));
 					if (strict) {
 						throw new MojoFailureException(
-								"wrong version for package " + info.packageName);
+								String.format("package %s version should be at least %s " ,info.packageName,v));
 					}
-					
+
 				}
 				if (info.warning != null && info.warning.length() > 0) {
-					getLog().warn(
-							"package " + info.packageName + ": " + info.warning);
+					getLog().warn(String.format("package %s : %s", info.packageName,info.warning));			
 				}
 
 			}
 			BundleInfo binfo = baseline.getBundleInfo();
-			getLog().warn(
-					"Bundle version is " + binfo.version
-							+ ". The recommended version is "
-							+ binfo.suggestedVersion);
+			getLog().warn(String.format("Bundle version is %s, the recommended version is %s",binfo.version,binfo.suggestedVersion));
 			if (binfo.mismatch) {
 				if (strict) {
 					throw new MojoFailureException("wrong version for artifact");
 				}
-				
+
 			}
 
 		} catch (IOException e) {
 			throw new MojoExecutionException("could not calculate  versions", e);
-		} 
+		}
 
+	}
+
+	private File getCurrentArtifact() {
+		// new jar comes from the target directory, freshly compiled
+		return new File(target, jarName.concat(EXTENSION));
 	}
 
 	/**
@@ -146,9 +158,14 @@ public class BaselineMojo extends AbstractMojo {
 	 */
 	private File getLastArtifact() throws MojoExecutionException {
 		org.eclipse.aether.version.Version v = getLastVersion();
-		return getArtifactFile(v.toString());
+
+		Artifact artifactQuery = new DefaultArtifact(groupId.concat(":")
+				.concat(name).concat(":").concat(v.toString()));
+		getLog().debug(String.format("looking for artifact %s", artifactQuery.toString()));
+		return getArtifactFile(artifactQuery);
 
 	}
+
 
 	/**
 	 * gets the file for the artifact at the specified version.
@@ -157,10 +174,9 @@ public class BaselineMojo extends AbstractMojo {
 	 * @return
 	 * @throws MojoExecutionException
 	 */
-	private File getArtifactFile(String version) throws MojoExecutionException {
+	private File getArtifactFile(Artifact artifactQuery)
+			throws MojoExecutionException {
 
-		Artifact artifactQuery = new DefaultArtifact(groupId.concat(":")
-				.concat(name).concat(":").concat(version));
 		ArtifactRequest request = new ArtifactRequest(artifactQuery,
 				projectRepos, null);
 		List<ArtifactRequest> arts = new ArrayList<ArtifactRequest>();
@@ -194,7 +210,7 @@ public class BaselineMojo extends AbstractMojo {
 		artifactDescription = artifactDescription.replace("version", version);
 
 		Artifact artifact = new DefaultArtifact(artifactDescription);
-
+		getLog().info(String.format("searching for artifacts in range %s", artifactDescription));
 		VersionRangeRequest rangeRequest = new VersionRangeRequest();
 		rangeRequest.setArtifact(artifact);
 		rangeRequest.setRepositories(projectRepos);
@@ -205,39 +221,16 @@ public class BaselineMojo extends AbstractMojo {
 					rangeRequest);
 			List<org.eclipse.aether.version.Version> versions = rangeResult
 					.getVersions();
-
+			getLog().debug(String.format("found versions %s",rangeResult.getVersions()));
 			org.eclipse.aether.version.Version lastVersion = versions
 					.get(versions.size() - 1);
+			getLog().debug(String.format("previous version is %s",lastVersion));
 			return lastVersion;
 
 		} catch (VersionRangeResolutionException e) {
 			throw new MojoExecutionException("could not calculate  versions", e);
 		}
 
-	}
-
-	private ComparableVersion acquirePreviousVersion(File oldJarPath) {
-		String[] directories = oldJarPath.list(new FilenameFilter() {
-
-			public boolean accept(File current, String name) {
-
-				return new File(current, name).isDirectory();
-			}
-		});
-
-		Arrays.sort(directories);
-		ComparableVersion currentVersion = new ComparableVersion(version);
-		ComparableVersion previousVersion = new ComparableVersion(
-				"0.0.0-SNAPSHOT");
-		for (String directory : directories) {
-			ComparableVersion somePastVersion = new ComparableVersion(directory);
-			// look for the highest version that is not the current
-			if (somePastVersion.compareTo(previousVersion) > 0
-					&& somePastVersion.compareTo(currentVersion) != 0) {
-				previousVersion = somePastVersion;
-			}
-		}
-		return previousVersion;
 	}
 
 }
