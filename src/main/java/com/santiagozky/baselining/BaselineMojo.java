@@ -36,7 +36,7 @@ import aQute.bnd.version.Version;
 @Mojo(name = "baseline", defaultPhase = LifecyclePhase.VERIFY)
 @Execute(phase = LifecyclePhase.VERIFY, goal = "baseline")
 public class BaselineMojo extends AbstractMojo {
-	//TODO: how to get the real extension?
+	// TODO: how to get the real extension?
 	private static final String EXTENSION = ".jar";
 
 	private static final String ARTIFACT_DESCRIPTION = "groupId:artifactId:[0,version)";
@@ -49,12 +49,11 @@ public class BaselineMojo extends AbstractMojo {
 	private boolean strict = false;
 
 	/**
-	 * Always show the suggested version of a package.
-	 * By default it will only shows it if the suggested is higher than the actual.
+	 * Always show the suggested version of a package. By default it will only
+	 * shows it if the suggested is higher than the actual.
 	 */
 	@Parameter
-	private boolean verbose= false;
-
+	private boolean verbose = false;
 
 	// these should not be modified
 
@@ -84,15 +83,19 @@ public class BaselineMojo extends AbstractMojo {
 	private List<RemoteRepository> projectRepos;
 
 	public void execute() throws MojoExecutionException, MojoFailureException {
-		
-		
 
 		File oldJar = getLastArtifact();
+		if (oldJar == null) {
+			getLog().warn(
+					"Could not find a previous version artifact to compare.");
+			return;
+		}
 
-	
 		File newJar = getCurrentArtifact();
 
-		getLog().info(String.format("Comparing artifact %s against %s",newJar.getName(), oldJar.getName()));
+		getLog().info(
+				String.format("Comparing artifact %s against %s",
+						newJar.getName(), oldJar.getName()));
 		getLog().debug("strict mode is " + strict);
 		getLog().debug("verbose mode is " + verbose);
 		DiffPluginImpl differ = new DiffPluginImpl();
@@ -111,27 +114,46 @@ public class BaselineMojo extends AbstractMojo {
 			}
 			for (Info info : infos) {
 				Version v = info.suggestedVersion;
-				
-			
-				if(verbose){
-					getLog().info(String.format("package %s version changed from %s to %s",info.packageName,info.olderVersion,info.newerVersion));
-					getLog().info(String.format("package %s suggested version is %s",info.packageName,v));
+
+				if (verbose) {
+					getLog().info(
+							String.format(
+									"package %s version changed from %s to %s",
+									info.packageName, info.olderVersion,
+									info.newerVersion));
+					getLog().info(
+							String.format("package %s suggested version is %s",
+									info.packageName, v));
 				}
 				if (info.mismatch) {
-					getLog().error(String.format("package %s version is incorrect. Should be at least %s", info.packageName,v));
+					getLog().error(
+							String.format(
+									"package %s version is incorrect. Should be at least %s",
+									info.packageName, v));
 					if (strict) {
-						throw new MojoFailureException(
-								String.format("package %s version should be at least %s " ,info.packageName,v));
+						throw new MojoFailureException(String.format(
+								"package %s version should be at least %s ",
+								info.packageName, v));
 					}
 
 				}
 				if (info.warning != null && info.warning.length() > 0) {
-					getLog().warn(String.format("package %s : %s", info.packageName,info.warning));			
+					getLog().warn(
+							String.format("package %s : %s", info.packageName,
+									info.warning));
 				}
 
 			}
 			BundleInfo binfo = baseline.getBundleInfo();
-			getLog().warn(String.format("Bundle version is %s, the recommended version is %s",binfo.version,binfo.suggestedVersion));
+			if (!baseline.getNewerVersion().equals(binfo.suggestedVersion)) {
+				getLog().warn(
+						String.format(
+								"Bundle version is %s, the recommended version is %s",
+								baseline.getNewerVersion(),
+								binfo.suggestedVersion));
+			}else{
+				getLog().info(String.format("Bundle version is %s",baseline.getNewerVersion()));
+			}
 			if (binfo.mismatch) {
 				if (strict) {
 					throw new MojoFailureException("wrong version for artifact");
@@ -158,14 +180,18 @@ public class BaselineMojo extends AbstractMojo {
 	 */
 	private File getLastArtifact() throws MojoExecutionException {
 		org.eclipse.aether.version.Version v = getLastVersion();
+		if (v == null) {
+			return null;
+		}
 
 		Artifact artifactQuery = new DefaultArtifact(groupId.concat(":")
 				.concat(name).concat(":").concat(v.toString()));
-		getLog().debug(String.format("looking for artifact %s", artifactQuery.toString()));
+		getLog().debug(
+				String.format("looking for artifact %s",
+						artifactQuery.toString()));
 		return getArtifactFile(artifactQuery);
 
 	}
-
 
 	/**
 	 * gets the file for the artifact at the specified version.
@@ -210,7 +236,9 @@ public class BaselineMojo extends AbstractMojo {
 		artifactDescription = artifactDescription.replace("version", version);
 
 		Artifact artifact = new DefaultArtifact(artifactDescription);
-		getLog().info(String.format("searching for artifacts in range %s", artifactDescription));
+		getLog().info(
+				String.format("searching for artifacts in range %s",
+						artifactDescription));
 		VersionRangeRequest rangeRequest = new VersionRangeRequest();
 		rangeRequest.setArtifact(artifact);
 		rangeRequest.setRepositories(projectRepos);
@@ -221,10 +249,16 @@ public class BaselineMojo extends AbstractMojo {
 					rangeRequest);
 			List<org.eclipse.aether.version.Version> versions = rangeResult
 					.getVersions();
-			getLog().debug(String.format("found versions %s",rangeResult.getVersions()));
+			getLog().debug(
+					String.format("found versions %s",
+							rangeResult.getVersions()));
+			// could not find a previous version
+			if (versions.isEmpty()) {
+				return null;
+			}
 			org.eclipse.aether.version.Version lastVersion = versions
 					.get(versions.size() - 1);
-			getLog().debug(String.format("previous version is %s",lastVersion));
+			getLog().debug(String.format("previous version is %s", lastVersion));
 			return lastVersion;
 
 		} catch (VersionRangeResolutionException e) {
