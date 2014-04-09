@@ -3,6 +3,8 @@ baselining-plugin
 
 This is a maven plugin that helps you enforcing semantic versioning as recommended by OSGi, Requires maven 3.1.0
 
+If you need support for a maven version lower than 3.1.0, please check the maven-3.0-compatibility branch.
+
 A simple configuration would look like this
 ```XML
  <plugin>
