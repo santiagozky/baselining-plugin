@@ -1,3 +1,6 @@
+NOTE: Recently, I found this project  https://github.com/code-distillery/baselining-maven-plugin  which does exactly the same as this plugin. It also works fine in most Maven versions. Because of this I recommend you to use that instead. I probably wont develop this any further.
+
+
 baselining-plugin
 =================
 
